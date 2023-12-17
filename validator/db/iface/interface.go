@@ -10,11 +10,15 @@ import (
 	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
 	"github.com/prysmaticlabs/prysm/v4/monitoring/backup"
 	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/validator/db/filesystem"
 	"github.com/prysmaticlabs/prysm/v4/validator/db/kv"
 )
 
 // Ensure the kv store implements the interface.
 var _ = ValidatorDB(&kv.Store{})
+
+// Ensure the filesystem store implements the interface.
+var _ = ValidatorDB(&filesystem.Store{})
 
 // ValidatorDB defines the necessary methods for a Prysm validator DB.
 type ValidatorDB interface {
