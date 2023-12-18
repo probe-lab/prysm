@@ -849,80 +849,86 @@ func TestProposerSettings(t *testing.T) {
 			wantErr: "failed to unmarshal yaml file",
 		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			app := cli.App{}
-			set := flag.NewFlagSet("test", 0)
-			if tt.args.proposerSettingsFlagValues.dir != "" {
-				set.String(flags.ProposerSettingsFlag.Name, tt.args.proposerSettingsFlagValues.dir, "")
-				require.NoError(t, set.Set(flags.ProposerSettingsFlag.Name, tt.args.proposerSettingsFlagValues.dir))
-			}
-			if tt.args.proposerSettingsFlagValues.url != "" {
-				content, err := os.ReadFile(tt.args.proposerSettingsFlagValues.url)
-				require.NoError(t, err)
-				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(200)
-					w.Header().Set("Content-Type", "application/json")
-					_, err := fmt.Fprintf(w, "%s", content)
+	for _, isSlashingProtectionMinimal := range [...]bool{false, true} {
+		for _, tt := range tests {
+			t.Run(fmt.Sprintf("%s/isMinimalSlashingProtectionEnabled:%v", tt.name, isSlashingProtectionMinimal), func(t *testing.T) {
+				app := cli.App{}
+				set := flag.NewFlagSet("test", 0)
+				if tt.args.proposerSettingsFlagValues.dir != "" {
+					set.String(flags.ProposerSettingsFlag.Name, tt.args.proposerSettingsFlagValues.dir, "")
+					require.NoError(t, set.Set(flags.ProposerSettingsFlag.Name, tt.args.proposerSettingsFlagValues.dir))
+				}
+				if tt.args.proposerSettingsFlagValues.url != "" {
+					content, err := os.ReadFile(tt.args.proposerSettingsFlagValues.url)
 					require.NoError(t, err)
-				}))
-				defer srv.Close()
+					srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						w.WriteHeader(200)
+						w.Header().Set("Content-Type", "application/json")
+						_, err := fmt.Fprintf(w, "%s", content)
+						require.NoError(t, err)
+					}))
+					defer srv.Close()
 
-				set.String(flags.ProposerSettingsURLFlag.Name, tt.args.proposerSettingsFlagValues.url, "")
-				require.NoError(t, set.Set(flags.ProposerSettingsURLFlag.Name, srv.URL))
-			}
-			if tt.args.proposerSettingsFlagValues.defaultfee != "" {
-				set.String(flags.SuggestedFeeRecipientFlag.Name, tt.args.proposerSettingsFlagValues.defaultfee, "")
-				require.NoError(t, set.Set(flags.SuggestedFeeRecipientFlag.Name, tt.args.proposerSettingsFlagValues.defaultfee))
-			}
-			if tt.args.proposerSettingsFlagValues.defaultgas != "" {
-				set.String(flags.BuilderGasLimitFlag.Name, tt.args.proposerSettingsFlagValues.defaultgas, "")
-				require.NoError(t, set.Set(flags.BuilderGasLimitFlag.Name, tt.args.proposerSettingsFlagValues.defaultgas))
-			}
-			if tt.validatorRegistrationEnabled {
-				set.Bool(flags.EnableBuilderFlag.Name, true, "")
-			}
-			cliCtx := cli.NewContext(&app, set, nil)
-			validatorDB := dbTest.SetupDB(t, [][fieldparams.BLSPubkeyLength]byte{})
-			if tt.withdb != nil {
-				err := tt.withdb(validatorDB)
-				require.NoError(t, err)
-			}
-			got, err := proposerSettings(cliCtx, validatorDB)
-			if tt.wantErr != "" {
-				require.ErrorContains(t, tt.wantErr, err)
-				return
-			}
-			if tt.wantLog != "" {
-				assert.LogsContain(t, hook,
-					tt.wantLog,
-				)
-			}
-			w := tt.want()
-			require.DeepEqual(t, w, got)
+					set.String(flags.ProposerSettingsURLFlag.Name, tt.args.proposerSettingsFlagValues.url, "")
+					require.NoError(t, set.Set(flags.ProposerSettingsURLFlag.Name, srv.URL))
+				}
+				if tt.args.proposerSettingsFlagValues.defaultfee != "" {
+					set.String(flags.SuggestedFeeRecipientFlag.Name, tt.args.proposerSettingsFlagValues.defaultfee, "")
+					require.NoError(t, set.Set(flags.SuggestedFeeRecipientFlag.Name, tt.args.proposerSettingsFlagValues.defaultfee))
+				}
+				if tt.args.proposerSettingsFlagValues.defaultgas != "" {
+					set.String(flags.BuilderGasLimitFlag.Name, tt.args.proposerSettingsFlagValues.defaultgas, "")
+					require.NoError(t, set.Set(flags.BuilderGasLimitFlag.Name, tt.args.proposerSettingsFlagValues.defaultgas))
+				}
+				if tt.validatorRegistrationEnabled {
+					set.Bool(flags.EnableBuilderFlag.Name, true, "")
+				}
+				cliCtx := cli.NewContext(&app, set, nil)
+				validatorDB := dbTest.SetupDB(t, [][fieldparams.BLSPubkeyLength]byte{}, isSlashingProtectionMinimal)
+				if tt.withdb != nil {
+					err := tt.withdb(validatorDB)
+					require.NoError(t, err)
+				}
+				got, err := proposerSettings(cliCtx, validatorDB)
+				if tt.wantErr != "" {
+					require.ErrorContains(t, tt.wantErr, err)
+					return
+				}
+				if tt.wantLog != "" {
+					assert.LogsContain(t, hook,
+						tt.wantLog,
+					)
+				}
+				w := tt.want()
+				require.DeepEqual(t, w, got)
 
-		})
+			})
+		}
 	}
 }
 
 func Test_ProposerSettingsWithOnlyBuilder_DoesNotSaveInDB(t *testing.T) {
-	app := cli.App{}
-	set := flag.NewFlagSet("test", 0)
-	set.Bool(flags.EnableBuilderFlag.Name, true, "")
-	cliCtx := cli.NewContext(&app, set, nil)
-	validatorDB := dbTest.SetupDB(t, [][fieldparams.BLSPubkeyLength]byte{})
-	got, err := proposerSettings(cliCtx, validatorDB)
-	require.NoError(t, err)
-	_, err = validatorDB.ProposerSettings(cliCtx.Context)
-	require.ErrorContains(t, "no proposer settings found in bucket", err)
-	want := &validatorserviceconfig.ProposerSettings{
-		DefaultConfig: &validatorserviceconfig.ProposerOption{
-			BuilderConfig: &validatorserviceconfig.BuilderConfig{
-				Enabled:  true,
-				GasLimit: validator.Uint64(params.BeaconConfig().DefaultBuilderGasLimit),
-				Relays:   nil,
-			},
-		},
+	for _, isSlashingProtectionMinimal := range [...]bool{false, true} {
+		t.Run(fmt.Sprintf("isSlashingProtectionMinimal=%v", isSlashingProtectionMinimal), func(t *testing.T) {
+			app := cli.App{}
+			set := flag.NewFlagSet("test", 0)
+			set.Bool(flags.EnableBuilderFlag.Name, true, "")
+			cliCtx := cli.NewContext(&app, set, nil)
+			validatorDB := dbTest.SetupDB(t, [][fieldparams.BLSPubkeyLength]byte{}, isSlashingProtectionMinimal)
+			got, err := proposerSettings(cliCtx, validatorDB)
+			require.NoError(t, err)
+			_, err = validatorDB.ProposerSettings(cliCtx.Context)
+			require.ErrorContains(t, "no proposer settings found in bucket", err)
+			want := &validatorserviceconfig.ProposerSettings{
+				DefaultConfig: &validatorserviceconfig.ProposerOption{
+					BuilderConfig: &validatorserviceconfig.BuilderConfig{
+						Enabled:  true,
+						GasLimit: validator.Uint64(params.BeaconConfig().DefaultBuilderGasLimit),
+						Relays:   nil,
+					},
+				},
+			}
+			require.DeepEqual(t, want, got)
+		})
 	}
-	require.DeepEqual(t, want, got)
 }
