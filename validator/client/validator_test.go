@@ -685,105 +685,113 @@ func TestUpdateDuties_AllValidatorsExited(t *testing.T) {
 }
 
 func TestRolesAt_OK(t *testing.T) {
-	v, m, validatorKey, finish := setup(t)
-	defer finish()
+	for _, isSlashingProtectionMinimal := range [...]bool{false, true} {
+		t.Run(fmt.Sprintf("SlashingProtectionMinimal:%v", isSlashingProtectionMinimal), func(t *testing.T) {
+			v, m, validatorKey, finish := setup(t, isSlashingProtectionMinimal)
+			defer finish()
 
-	v.duties = &ethpb.DutiesResponse{
-		Duties: []*ethpb.DutiesResponse_Duty{
-			{
-				CommitteeIndex:  1,
-				AttesterSlot:    1,
-				PublicKey:       validatorKey.PublicKey().Marshal(),
-				IsSyncCommittee: true,
-			},
-		},
-		NextEpochDuties: []*ethpb.DutiesResponse_Duty{
-			{
-				CommitteeIndex:  1,
-				AttesterSlot:    1,
-				PublicKey:       validatorKey.PublicKey().Marshal(),
-				IsSyncCommittee: true,
-			},
-		},
+			v.duties = &ethpb.DutiesResponse{
+				Duties: []*ethpb.DutiesResponse_Duty{
+					{
+						CommitteeIndex:  1,
+						AttesterSlot:    1,
+						PublicKey:       validatorKey.PublicKey().Marshal(),
+						IsSyncCommittee: true,
+					},
+				},
+				NextEpochDuties: []*ethpb.DutiesResponse_Duty{
+					{
+						CommitteeIndex:  1,
+						AttesterSlot:    1,
+						PublicKey:       validatorKey.PublicKey().Marshal(),
+						IsSyncCommittee: true,
+					},
+				},
+			}
+
+			m.validatorClient.EXPECT().DomainData(
+				gomock.Any(), // ctx
+				gomock.Any(), // epoch
+			).Return(&ethpb.DomainResponse{SignatureDomain: make([]byte, 32)}, nil /*err*/)
+
+			m.validatorClient.EXPECT().GetSyncSubcommitteeIndex(
+				gomock.Any(), // ctx
+				&ethpb.SyncSubcommitteeIndexRequest{
+					PublicKey: validatorKey.PublicKey().Marshal(),
+					Slot:      1,
+				},
+			).Return(&ethpb.SyncSubcommitteeIndexResponse{}, nil /*err*/)
+
+			roleMap, err := v.RolesAt(context.Background(), 1)
+			require.NoError(t, err)
+
+			assert.Equal(t, iface.RoleAttester, roleMap[bytesutil.ToBytes48(validatorKey.PublicKey().Marshal())][0])
+			assert.Equal(t, iface.RoleAggregator, roleMap[bytesutil.ToBytes48(validatorKey.PublicKey().Marshal())][1])
+			assert.Equal(t, iface.RoleSyncCommittee, roleMap[bytesutil.ToBytes48(validatorKey.PublicKey().Marshal())][2])
+
+			// Test sync committee role at epoch boundary.
+			v.duties = &ethpb.DutiesResponse{
+				Duties: []*ethpb.DutiesResponse_Duty{
+					{
+						CommitteeIndex:  1,
+						AttesterSlot:    1,
+						PublicKey:       validatorKey.PublicKey().Marshal(),
+						IsSyncCommittee: false,
+					},
+				},
+				NextEpochDuties: []*ethpb.DutiesResponse_Duty{
+					{
+						CommitteeIndex:  1,
+						AttesterSlot:    1,
+						PublicKey:       validatorKey.PublicKey().Marshal(),
+						IsSyncCommittee: true,
+					},
+				},
+			}
+
+			m.validatorClient.EXPECT().GetSyncSubcommitteeIndex(
+				gomock.Any(), // ctx
+				&ethpb.SyncSubcommitteeIndexRequest{
+					PublicKey: validatorKey.PublicKey().Marshal(),
+					Slot:      31,
+				},
+			).Return(&ethpb.SyncSubcommitteeIndexResponse{}, nil /*err*/)
+
+			roleMap, err = v.RolesAt(context.Background(), params.BeaconConfig().SlotsPerEpoch-1)
+			require.NoError(t, err)
+			assert.Equal(t, iface.RoleSyncCommittee, roleMap[bytesutil.ToBytes48(validatorKey.PublicKey().Marshal())][0])
+		})
 	}
-
-	m.validatorClient.EXPECT().DomainData(
-		gomock.Any(), // ctx
-		gomock.Any(), // epoch
-	).Return(&ethpb.DomainResponse{SignatureDomain: make([]byte, 32)}, nil /*err*/)
-
-	m.validatorClient.EXPECT().GetSyncSubcommitteeIndex(
-		gomock.Any(), // ctx
-		&ethpb.SyncSubcommitteeIndexRequest{
-			PublicKey: validatorKey.PublicKey().Marshal(),
-			Slot:      1,
-		},
-	).Return(&ethpb.SyncSubcommitteeIndexResponse{}, nil /*err*/)
-
-	roleMap, err := v.RolesAt(context.Background(), 1)
-	require.NoError(t, err)
-
-	assert.Equal(t, iface.RoleAttester, roleMap[bytesutil.ToBytes48(validatorKey.PublicKey().Marshal())][0])
-	assert.Equal(t, iface.RoleAggregator, roleMap[bytesutil.ToBytes48(validatorKey.PublicKey().Marshal())][1])
-	assert.Equal(t, iface.RoleSyncCommittee, roleMap[bytesutil.ToBytes48(validatorKey.PublicKey().Marshal())][2])
-
-	// Test sync committee role at epoch boundary.
-	v.duties = &ethpb.DutiesResponse{
-		Duties: []*ethpb.DutiesResponse_Duty{
-			{
-				CommitteeIndex:  1,
-				AttesterSlot:    1,
-				PublicKey:       validatorKey.PublicKey().Marshal(),
-				IsSyncCommittee: false,
-			},
-		},
-		NextEpochDuties: []*ethpb.DutiesResponse_Duty{
-			{
-				CommitteeIndex:  1,
-				AttesterSlot:    1,
-				PublicKey:       validatorKey.PublicKey().Marshal(),
-				IsSyncCommittee: true,
-			},
-		},
-	}
-
-	m.validatorClient.EXPECT().GetSyncSubcommitteeIndex(
-		gomock.Any(), // ctx
-		&ethpb.SyncSubcommitteeIndexRequest{
-			PublicKey: validatorKey.PublicKey().Marshal(),
-			Slot:      31,
-		},
-	).Return(&ethpb.SyncSubcommitteeIndexResponse{}, nil /*err*/)
-
-	roleMap, err = v.RolesAt(context.Background(), params.BeaconConfig().SlotsPerEpoch-1)
-	require.NoError(t, err)
-	assert.Equal(t, iface.RoleSyncCommittee, roleMap[bytesutil.ToBytes48(validatorKey.PublicKey().Marshal())][0])
 }
 
 func TestRolesAt_DoesNotAssignProposer_Slot0(t *testing.T) {
-	v, m, validatorKey, finish := setup(t)
-	defer finish()
+	for _, isSlashingProtectionMinimal := range [...]bool{false, true} {
+		t.Run(fmt.Sprintf("SlashingProtectionMinimal:%v", isSlashingProtectionMinimal), func(t *testing.T) {
+			v, m, validatorKey, finish := setup(t, isSlashingProtectionMinimal)
+			defer finish()
 
-	v.duties = &ethpb.DutiesResponse{
-		Duties: []*ethpb.DutiesResponse_Duty{
-			{
-				CommitteeIndex: 1,
-				AttesterSlot:   0,
-				ProposerSlots:  []primitives.Slot{0},
-				PublicKey:      validatorKey.PublicKey().Marshal(),
-			},
-		},
+			v.duties = &ethpb.DutiesResponse{
+				Duties: []*ethpb.DutiesResponse_Duty{
+					{
+						CommitteeIndex: 1,
+						AttesterSlot:   0,
+						ProposerSlots:  []primitives.Slot{0},
+						PublicKey:      validatorKey.PublicKey().Marshal(),
+					},
+				},
+			}
+
+			m.validatorClient.EXPECT().DomainData(
+				gomock.Any(), // ctx
+				gomock.Any(), // epoch
+			).Return(&ethpb.DomainResponse{SignatureDomain: make([]byte, 32)}, nil /*err*/)
+
+			roleMap, err := v.RolesAt(context.Background(), 0)
+			require.NoError(t, err)
+
+			assert.Equal(t, iface.RoleAttester, roleMap[bytesutil.ToBytes48(validatorKey.PublicKey().Marshal())][0])
+		})
 	}
-
-	m.validatorClient.EXPECT().DomainData(
-		gomock.Any(), // ctx
-		gomock.Any(), // epoch
-	).Return(&ethpb.DomainResponse{SignatureDomain: make([]byte, 32)}, nil /*err*/)
-
-	roleMap, err := v.RolesAt(context.Background(), 0)
-	require.NoError(t, err)
-
-	assert.Equal(t, iface.RoleAttester, roleMap[bytesutil.ToBytes48(validatorKey.PublicKey().Marshal())][0])
 }
 
 func TestCheckAndLogValidatorStatus_OK(t *testing.T) {
@@ -1238,45 +1246,49 @@ func createAttestation(source, target primitives.Epoch) *ethpb.IndexedAttestatio
 }
 
 func TestIsSyncCommitteeAggregator_OK(t *testing.T) {
-	params.SetupTestConfigCleanup(t)
-	v, m, validatorKey, finish := setup(t)
-	defer finish()
+	for _, isSlashingProtectionMinimal := range [...]bool{false, true} {
+		t.Run(fmt.Sprintf("SlashingProtectionMinimal:%v", isSlashingProtectionMinimal), func(t *testing.T) {
+			params.SetupTestConfigCleanup(t)
+			v, m, validatorKey, finish := setup(t, isSlashingProtectionMinimal)
+			defer finish()
 
-	slot := primitives.Slot(1)
-	pubKey := validatorKey.PublicKey().Marshal()
+			slot := primitives.Slot(1)
+			pubKey := validatorKey.PublicKey().Marshal()
 
-	m.validatorClient.EXPECT().GetSyncSubcommitteeIndex(
-		gomock.Any(), // ctx
-		&ethpb.SyncSubcommitteeIndexRequest{
-			PublicKey: validatorKey.PublicKey().Marshal(),
-			Slot:      1,
-		},
-	).Return(&ethpb.SyncSubcommitteeIndexResponse{}, nil /*err*/)
+			m.validatorClient.EXPECT().GetSyncSubcommitteeIndex(
+				gomock.Any(), // ctx
+				&ethpb.SyncSubcommitteeIndexRequest{
+					PublicKey: validatorKey.PublicKey().Marshal(),
+					Slot:      1,
+				},
+			).Return(&ethpb.SyncSubcommitteeIndexResponse{}, nil /*err*/)
 
-	aggregator, err := v.isSyncCommitteeAggregator(context.Background(), slot, bytesutil.ToBytes48(pubKey))
-	require.NoError(t, err)
-	require.Equal(t, false, aggregator)
+			aggregator, err := v.isSyncCommitteeAggregator(context.Background(), slot, bytesutil.ToBytes48(pubKey))
+			require.NoError(t, err)
+			require.Equal(t, false, aggregator)
 
-	c := params.BeaconConfig().Copy()
-	c.TargetAggregatorsPerSyncSubcommittee = math.MaxUint64
-	params.OverrideBeaconConfig(c)
+			c := params.BeaconConfig().Copy()
+			c.TargetAggregatorsPerSyncSubcommittee = math.MaxUint64
+			params.OverrideBeaconConfig(c)
 
-	m.validatorClient.EXPECT().DomainData(
-		gomock.Any(), // ctx
-		gomock.Any(), // epoch
-	).Return(&ethpb.DomainResponse{SignatureDomain: make([]byte, 32)}, nil /*err*/)
+			m.validatorClient.EXPECT().DomainData(
+				gomock.Any(), // ctx
+				gomock.Any(), // epoch
+			).Return(&ethpb.DomainResponse{SignatureDomain: make([]byte, 32)}, nil /*err*/)
 
-	m.validatorClient.EXPECT().GetSyncSubcommitteeIndex(
-		gomock.Any(), // ctx
-		&ethpb.SyncSubcommitteeIndexRequest{
-			PublicKey: validatorKey.PublicKey().Marshal(),
-			Slot:      1,
-		},
-	).Return(&ethpb.SyncSubcommitteeIndexResponse{Indices: []primitives.CommitteeIndex{0}}, nil /*err*/)
+			m.validatorClient.EXPECT().GetSyncSubcommitteeIndex(
+				gomock.Any(), // ctx
+				&ethpb.SyncSubcommitteeIndexRequest{
+					PublicKey: validatorKey.PublicKey().Marshal(),
+					Slot:      1,
+				},
+			).Return(&ethpb.SyncSubcommitteeIndexResponse{Indices: []primitives.CommitteeIndex{0}}, nil /*err*/)
 
-	aggregator, err = v.isSyncCommitteeAggregator(context.Background(), slot, bytesutil.ToBytes48(pubKey))
-	require.NoError(t, err)
-	require.Equal(t, true, aggregator)
+			aggregator, err = v.isSyncCommitteeAggregator(context.Background(), slot, bytesutil.ToBytes48(pubKey))
+			require.NoError(t, err)
+			require.Equal(t, true, aggregator)
+		})
+	}
 }
 
 func TestValidator_WaitForKeymanagerInitialization_web3Signer(t *testing.T) {
