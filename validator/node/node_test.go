@@ -69,10 +69,14 @@ func TestNode_Builds(t *testing.T) {
 
 // TestClearDB tests clearing the database
 func TestClearDB(t *testing.T) {
-	hook := logtest.NewGlobal()
-	tmp := filepath.Join(t.TempDir(), "datadirtest")
-	require.NoError(t, clearDB(context.Background(), tmp, true))
-	require.LogsContain(t, hook, "Removing database")
+	for _, isMinimalDatabase := range []bool{false, true} {
+		t.Run(fmt.Sprintf("isMinimalDatabase=%v", isMinimalDatabase), func(t *testing.T) {
+			hook := logtest.NewGlobal()
+			tmp := filepath.Join(t.TempDir(), "datadirtest")
+			require.NoError(t, clearDB(context.Background(), tmp, true, isMinimalDatabase))
+			require.LogsContain(t, hook, "Removing database")
+		})
+	}
 }
 
 // TestWeb3SignerConfig tests the web3 signer config returns the correct values.
