@@ -1,4 +1,4 @@
-package history
+package helpers
 
 import (
 	"encoding/hex"
@@ -6,29 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/k0kubun/go-ansi"
 	fieldparams "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
 	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
-	"github.com/schollz/progressbar/v3"
 )
-
-func initializeProgressBar(numItems int, msg string) *progressbar.ProgressBar {
-	return progressbar.NewOptions(
-		numItems,
-		progressbar.OptionFullWidth(),
-		progressbar.OptionSetWriter(ansi.NewAnsiStdout()),
-		progressbar.OptionEnableColorCodes(true),
-		progressbar.OptionSetTheme(progressbar.Theme{
-			Saucer:        "[green]=[reset]",
-			SaucerHead:    "[green]>[reset]",
-			SaucerPadding: " ",
-			BarStart:      "[",
-			BarEnd:        "]",
-		}),
-		progressbar.OptionOnCompletion(func() { fmt.Println() }),
-		progressbar.OptionSetDescription(msg),
-	)
-}
 
 // Uint64FromString converts a string into a uint64 representation.
 func Uint64FromString(str string) (uint64, error) {
@@ -81,7 +61,7 @@ func RootFromHex(str string) ([32]byte, error) {
 	return root, nil
 }
 
-func rootToHexString(root []byte) (string, error) {
+func RootToHexString(root []byte) (string, error) {
 	// Nil signing roots are allowed in EIP-3076.
 	if len(root) == 0 {
 		return "", nil
@@ -92,7 +72,7 @@ func rootToHexString(root []byte) (string, error) {
 	return fmt.Sprintf("%#x", root), nil
 }
 
-func pubKeyToHexString(pubKey []byte) (string, error) {
+func PubKeyToHexString(pubKey []byte) (string, error) {
 	if len(pubKey) != 48 {
 		return "", fmt.Errorf("wanted length 48, received %d", len(pubKey))
 	}
