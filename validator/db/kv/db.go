@@ -16,6 +16,7 @@ import (
 	fieldparams "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
 	"github.com/prysmaticlabs/prysm/v4/config/params"
 	"github.com/prysmaticlabs/prysm/v4/io/file"
+	"github.com/prysmaticlabs/prysm/v4/validator/db/iface"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -104,6 +105,9 @@ func createBuckets(tx *bolt.Tx, buckets ...[]byte) error {
 	}
 	return nil
 }
+
+// Ensure the kv store implements the interface.
+var _ = iface.ValidatorDB(&Store{})
 
 // NewKVStore initializes a new boltDB key-value store at the directory
 // path specified, creates the kv-buckets based on the schema, and stores

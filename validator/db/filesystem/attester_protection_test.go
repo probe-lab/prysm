@@ -11,7 +11,7 @@ import (
 	"github.com/prysmaticlabs/prysm/v4/crypto/bls"
 	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
 	"github.com/prysmaticlabs/prysm/v4/testing/require"
-	"github.com/prysmaticlabs/prysm/v4/validator/db/kv"
+	"github.com/prysmaticlabs/prysm/v4/validator/db/common"
 )
 
 func TestStore_EIPImportBlacklistedPublicKeys(t *testing.T) {
@@ -433,7 +433,7 @@ func TestStore_AttestationHistoryForPubKey(t *testing.T) {
 	// Get the attestation history.
 	actual, err := store.AttestationHistoryForPubKey(context.Background(), pubkey)
 	require.NoError(t, err, "AttestationHistoryForPubKey should not return an error")
-	require.DeepEqual(t, []*kv.AttestationRecord{}, actual)
+	require.DeepEqual(t, []*common.AttestationRecord{}, actual)
 
 	// Create an attestation.
 	savedSourceEpoch, savedTargetEpoch := 42, 43
@@ -449,7 +449,7 @@ func TestStore_AttestationHistoryForPubKey(t *testing.T) {
 	require.NoError(t, err, "SaveAttestationForPubKey should not return an error")
 
 	// Get the attestation history.
-	expected := []*kv.AttestationRecord{
+	expected := []*common.AttestationRecord{
 		{
 			PubKey: pubkey,
 			Source: primitives.Epoch(savedSourceEpoch),

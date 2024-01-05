@@ -7,7 +7,7 @@ import (
 	fieldparams "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
 	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
 	"github.com/prysmaticlabs/prysm/v4/testing/require"
-	"github.com/prysmaticlabs/prysm/v4/validator/db/kv"
+	"github.com/prysmaticlabs/prysm/v4/validator/db/common"
 )
 
 func TestStore_ProposalHistoryForPubKey(t *testing.T) {
@@ -17,22 +17,22 @@ func TestStore_ProposalHistoryForPubKey(t *testing.T) {
 	for _, tt := range []struct {
 		name                        string
 		validatorSlashingProtection *ValidatorSlashingProtection
-		expectedProposals           []*kv.Proposal
+		expectedProposals           []*common.Proposal
 	}{
 		{
 			name:                        "validatorSlashingProtection is nil",
 			validatorSlashingProtection: nil,
-			expectedProposals:           []*kv.Proposal{},
+			expectedProposals:           []*common.Proposal{},
 		},
 		{
 			name:                        "validatorSlashingProtection.LatestSignedBlockSlot is nil",
 			validatorSlashingProtection: &ValidatorSlashingProtection{LatestSignedBlockSlot: nil},
-			expectedProposals:           []*kv.Proposal{},
+			expectedProposals:           []*common.Proposal{},
 		},
 		{
 			name:                        "validatorSlashingProtection.LatestSignedBlockSlot is something",
 			validatorSlashingProtection: &ValidatorSlashingProtection{LatestSignedBlockSlot: &slot},
-			expectedProposals: []*kv.Proposal{
+			expectedProposals: []*common.Proposal{
 				{
 					Slot: primitives.Slot(slot),
 				},

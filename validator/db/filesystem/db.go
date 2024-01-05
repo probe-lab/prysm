@@ -14,6 +14,7 @@ import (
 	fieldparams "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
 	"github.com/prysmaticlabs/prysm/v4/io/file"
 	validatorpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1/validator-client"
+	"github.com/prysmaticlabs/prysm/v4/validator/db/iface"
 	"gopkg.in/yaml.v3"
 
 	"github.com/pkg/errors"
@@ -72,6 +73,9 @@ type (
 )
 
 var log = logrus.WithField("prefix", "db")
+
+// Ensure the filesystem store implements the interface.
+var _ = iface.ValidatorDB(&Store{})
 
 // NewStore creates a new filesystem store.
 func NewStore(databaseParentPath string, config *Config) (*Store, error) {
