@@ -72,4 +72,7 @@ type ValidatorDB interface {
 	UpdateProposerSettingsDefault(context.Context, *validatorServiceConfig.ProposerOption) error
 	UpdateProposerSettingsForPubkey(context.Context, [fieldparams.BLSPubkeyLength]byte, *validatorServiceConfig.ProposerOption) error
 	SaveProposerSettings(ctx context.Context, settings *validatorServiceConfig.ProposerSettings) error
+
+	// EIP-3076 slashing protection related methods
+	ImportStandardProtectionJSON(ctx context.Context, r io.Reader) error
 }
