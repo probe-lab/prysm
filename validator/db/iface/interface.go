@@ -8,6 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	fieldparams "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
 	validatorServiceConfig "github.com/prysmaticlabs/prysm/v4/config/validator/service"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/interfaces"
 	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
 	"github.com/prysmaticlabs/prysm/v4/monitoring/backup"
 	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
@@ -35,6 +36,14 @@ type ValidatorDB interface {
 	ProposalHistoryForSlot(ctx context.Context, publicKey [fieldparams.BLSPubkeyLength]byte, slot primitives.Slot) ([32]byte, bool, bool, error)
 	SaveProposalHistoryForSlot(ctx context.Context, pubKey [fieldparams.BLSPubkeyLength]byte, slot primitives.Slot, signingRoot []byte) error
 	ProposedPublicKeys(ctx context.Context) ([][fieldparams.BLSPubkeyLength]byte, error)
+	SlashableProposalCheck(
+		ctx context.Context,
+		pubKey [fieldparams.BLSPubkeyLength]byte,
+		signedBlock interfaces.ReadOnlySignedBeaconBlock,
+		signingRoot [fieldparams.RootLength]byte,
+		emitAccountMetrics bool,
+		validatorProposeFailVec *prometheus.CounterVec,
+	) error
 
 	// Attester protection related methods.
 	// Methods to store and read blacklisted public keys from EIP-3076
