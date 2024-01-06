@@ -13,7 +13,6 @@ import (
 	"github.com/prysmaticlabs/prysm/v4/validator/db/filesystem"
 	"github.com/prysmaticlabs/prysm/v4/validator/db/iface"
 	"github.com/prysmaticlabs/prysm/v4/validator/db/kv"
-	slashingprotection "github.com/prysmaticlabs/prysm/v4/validator/slashing-protection-history"
 	"github.com/urfave/cli/v2"
 )
 
@@ -105,7 +104,7 @@ func importSlashingProtectionJSON(cliCtx *cli.Context) error {
 	log.Infof("Starting import of slashing protection file %s", protectionFilePath)
 	buf := bytes.NewBuffer(enc)
 
-	if err := slashingprotection.ImportStandardProtectionJSON(cliCtx.Context, valDB, buf); err != nil {
+	if err := valDB.ImportStandardProtectionJSON(cliCtx.Context, buf); err != nil {
 		return errors.Wrapf(err, "could not import slashing protection JSON file %s", protectionFilePath)
 	}
 
