@@ -1,9 +1,10 @@
 package tos
 
 import (
-	"errors"
 	"path/filepath"
 	"strings"
+
+	"github.com/pkg/errors"
 
 	"github.com/logrusorgru/aurora"
 	"github.com/prysmaticlabs/prysm/v4/cmd"
@@ -37,9 +38,16 @@ var (
 
 // VerifyTosAcceptedOrPrompt check if Tos was accepted before or asks to accept.
 func VerifyTosAcceptedOrPrompt(ctx *cli.Context) error {
-	if file.Exists(filepath.Join(ctx.String(cmd.DataDirFlag.Name), acceptTosFilename)) {
+	acceptTosFilePath := filepath.Join(ctx.String(cmd.DataDirFlag.Name), acceptTosFilename)
+	exists, err := file.Exists(acceptTosFilePath, file.Regular)
+	if err != nil {
+		return errors.Wrapf(err, "could not check if file exists: %s", acceptTosFilePath)
+	}
+
+	if exists {
 		return nil
 	}
+
 	if ctx.Bool(cmd.AcceptTosFlag.Name) {
 		saveTosAccepted(ctx)
 		return nil
