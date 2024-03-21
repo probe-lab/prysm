@@ -216,6 +216,23 @@ func (s *Service) subscribeWithBase(topic string, validator wrappedVal, handle s
 			return
 		}
 
+		evt := &traceEvent{
+			Type:      "HANDLE_MESSAGE",
+			PeerID:    s.cfg.p2p.Host().ID(),
+			Timestamp: time.Now(),
+			Payload: map[string]any{
+				"PeerID":   msg.ReceivedFrom.String(),
+				"MsgID":    msg.ID,
+				"MsgBytes": len(msg.Data),
+				"Topic":    msg.GetTopic(),
+				"Seq":      msg.GetSeqno(),
+			},
+		}
+
+		if err := s.kinprod.PutRecord(s.ctx, evt); err != nil {
+			log.WithError(err).Warn("failed putting pubsub event")
+		}
+
 		if err := handle(ctx, msg.ValidatorData.(proto.Message)); err != nil {
 			tracing.AnnotateError(span, err)
 			log.WithError(err).Error("Could not handle p2p pubsub")

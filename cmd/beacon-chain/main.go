@@ -143,6 +143,8 @@ var appFlags = []cli.Flag{
 	bflags.EnableExperimentalBackfill,
 	bflags.BackfillBatchSize,
 	bflags.BackfillWorkerCount,
+	cmd.KinesisRegion,
+	cmd.KinesisStream,
 }
 
 func init() {

@@ -63,7 +63,7 @@ func (s *Service) streamBlobBatch(ctx context.Context, batch blockBatch, wQuota 
 }
 
 // blobsSidecarsByRangeRPCHandler looks up the request blobs from the database from a given start slot index
-func (s *Service) blobSidecarsByRangeRPCHandler(ctx context.Context, msg interface{}, stream libp2pcore.Stream) error {
+func (s *Service) blobSidecarsByRangeRPCHandler(ctx context.Context, msg interface{}, stream libp2pcore.Stream) (map[string]any, error) {
 	var err error
 	ctx, span := trace.StartSpan(ctx, "sync.BlobsSidecarsByRangeHandler")
 	defer span.End()
@@ -74,17 +74,17 @@ func (s *Service) blobSidecarsByRangeRPCHandler(ctx context.Context, msg interfa
 
 	r, ok := msg.(*pb.BlobSidecarsByRangeRequest)
 	if !ok {
-		return errors.New("message is not type *pb.BlobsSidecarsByRangeRequest")
+		return nil, errors.New("message is not type *pb.BlobsSidecarsByRangeRequest")
 	}
 	if err := s.rateLimiter.validateRequest(stream, 1); err != nil {
-		return err
+		return nil, err
 	}
 	rp, err := validateBlobsByRange(r, s.cfg.chain.CurrentSlot())
 	if err != nil {
 		s.writeErrorResponseToStream(responseCodeInvalidRequest, err.Error(), stream)
 		s.cfg.p2p.Peers().Scorers().BadResponsesScorer().Increment(stream.Conn().RemotePeer())
 		tracing.AnnotateError(span, err)
-		return err
+		return nil, err
 	}
 
 	// Ticker to stagger out large requests.
@@ -95,7 +95,7 @@ func (s *Service) blobSidecarsByRangeRPCHandler(ctx context.Context, msg interfa
 		log.WithError(err).Info("error in BlobSidecarsByRange batch")
 		s.writeErrorResponseToStream(responseCodeServerError, p2ptypes.ErrGeneric.Error(), stream)
 		tracing.AnnotateError(span, err)
-		return err
+		return nil, err
 	}
 
 	var batch blockBatch
@@ -105,7 +105,7 @@ func (s *Service) blobSidecarsByRangeRPCHandler(ctx context.Context, msg interfa
 		wQuota, err = s.streamBlobBatch(ctx, batch, wQuota, stream)
 		rpcBlobsByRangeResponseLatency.Observe(float64(time.Since(batchStart).Milliseconds()))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		// once we have written MAX_REQUEST_BLOB_SIDECARS, we're done serving the request
 		if wQuota == 0 {
@@ -116,11 +116,11 @@ func (s *Service) blobSidecarsByRangeRPCHandler(ctx context.Context, msg interfa
 		log.WithError(err).Debug("error in BlobSidecarsByRange batch")
 		s.writeErrorResponseToStream(responseCodeServerError, p2ptypes.ErrGeneric.Error(), stream)
 		tracing.AnnotateError(span, err)
-		return err
+		return nil, err
 	}
 
 	closeStream(stream, log)
-	return nil
+	return nil, nil
 }
 
 // BlobsByRangeMinStartSlot returns the lowest slot that we should expect peers to respect as the

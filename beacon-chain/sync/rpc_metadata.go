@@ -2,7 +2,7 @@ package sync
 
 import (
 	"context"
-
+	"encoding/hex"
 	libp2pcore "github.com/libp2p/go-libp2p/core"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/pkg/errors"
@@ -22,11 +22,11 @@ import (
 )
 
 // metaDataHandler reads the incoming metadata rpc request from the peer.
-func (s *Service) metaDataHandler(_ context.Context, _ interface{}, stream libp2pcore.Stream) error {
+func (s *Service) metaDataHandler(_ context.Context, _ interface{}, stream libp2pcore.Stream) (map[string]any, error) {
 	SetRPCStreamDeadlines(stream)
 
 	if err := s.rateLimiter.validateRequest(stream, 1); err != nil {
-		return err
+		return nil, err
 	}
 	s.rateLimiter.add(stream, 1)
 
@@ -38,7 +38,7 @@ func (s *Service) metaDataHandler(_ context.Context, _ interface{}, stream libp2
 		} else if _, err := stream.Write(resp); err != nil {
 			log.WithError(err).Debug("Could not write to stream")
 		}
-		return nilErr
+		return nil, nilErr
 	}
 	_, _, streamVersion, err := p2p.TopicDeconstructor(string(stream.Protocol()))
 	if err != nil {
@@ -48,9 +48,15 @@ func (s *Service) metaDataHandler(_ context.Context, _ interface{}, stream libp2
 		} else if _, wErr := stream.Write(resp); wErr != nil {
 			log.WithError(wErr).Debug("Could not write to stream")
 		}
-		return err
+		return nil, err
 	}
 	currMd := s.cfg.p2p.Metadata()
+
+	traceData := map[string]any{
+		"SeqNumber": currMd.SequenceNumber(),
+		"Attnets":   hex.EncodeToString(currMd.AttnetsBitfield().Bytes()),
+	}
+
 	switch streamVersion {
 	case p2p.SchemaVersionV1:
 		// We have a v1 metadata object saved locally, so we
@@ -72,17 +78,19 @@ func (s *Service) metaDataHandler(_ context.Context, _ interface{}, stream libp2
 					SeqNumber: currMd.SequenceNumber(),
 					Syncnets:  bitfield.Bitvector4{byte(0x00)},
 				})
+			traceData["Syncnets"] = hex.EncodeToString(bitfield.Bitvector4{byte(0x00)})
 		}
 	}
+
 	if _, err := stream.Write([]byte{responseCodeSuccess}); err != nil {
-		return err
+		return traceData, err
 	}
 	_, err = s.cfg.p2p.Encoding().EncodeWithMaxLength(stream, currMd)
 	if err != nil {
-		return err
+		return traceData, err
 	}
 	closeStream(stream, log)
-	return nil
+	return traceData, nil
 }
 
 func (s *Service) sendMetaDataRequest(ctx context.Context, id peer.ID) (metadata.Metadata, error) {

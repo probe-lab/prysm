@@ -132,6 +132,11 @@ func (s *Service) peerInspector(peerMap map[peer.ID]*pubsub.PeerScoreSnapshot) {
 
 // Creates a list of pubsub options to configure out router with.
 func (s *Service) pubsubOptions() []pubsub.Option {
+	tracer := gossipTracer{
+		host:     s.host,
+		producer: s.cfg.KinesisProducer,
+	}
+
 	psOpts := []pubsub.Option{
 		pubsub.WithMessageSignaturePolicy(pubsub.StrictNoSign),
 		pubsub.WithNoAuthor(),
@@ -145,7 +150,8 @@ func (s *Service) pubsubOptions() []pubsub.Option {
 		pubsub.WithPeerScore(peerScoringParams()),
 		pubsub.WithPeerScoreInspect(s.peerInspector, time.Minute),
 		pubsub.WithGossipSubParams(pubsubGossipParam()),
-		pubsub.WithRawTracer(gossipTracer{host: s.host}),
+		pubsub.WithRawTracer(tracer),
+		pubsub.WithEventTracer(tracer),
 	}
 	return psOpts
 }
