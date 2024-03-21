@@ -1,6 +1,7 @@
 package sync
 
 import (
+	gk "github.com/dennis-tra/go-kinesis"
 	"github.com/prysmaticlabs/prysm/v5/async/event"
 	blockfeed "github.com/prysmaticlabs/prysm/v5/beacon-chain/core/feed/block"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/core/feed/operation"
@@ -177,6 +178,13 @@ func WithVerifierWaiter(v *verification.InitializerWaiter) Option {
 func WithAvailableBlocker(avb coverage.AvailableBlocker) Option {
 	return func(s *Service) error {
 		s.availableBlocker = avb
+		return nil
+	}
+}
+
+func WithKinesisProducer(prod *gk.Producer) Option {
+	return func(s *Service) error {
+		s.kinprod = prod
 		return nil
 	}
 }

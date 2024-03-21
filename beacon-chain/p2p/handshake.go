@@ -10,6 +10,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/p2p/peers"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/p2p/peers/peerdata"
 	prysmTime "github.com/prysmaticlabs/prysm/v5/time"
@@ -56,8 +57,39 @@ func (s *Service) AddConnectionHandler(reqFunc, goodByeFunc func(ctx context.Con
 		delete(peerMap, id)
 	}
 
+	eventHandler := func(n network.Network, c network.Conn, evtType string) {
+		evt := &traceEvent{
+			Type:      evtType,
+			PeerID:    s.host.ID(),
+			Timestamp: time.Now(),
+			Payload: struct {
+				RemotePeer   string
+				RemoteMaddrs ma.Multiaddr
+				AgentVersion string
+				Direction    string
+				Opened       time.Time
+				Transient    bool
+			}{
+				RemotePeer:   c.RemotePeer().String(),
+				RemoteMaddrs: c.RemoteMultiaddr(),
+				AgentVersion: agentFromPid(c.RemotePeer(), s.host.Peerstore()),
+				Direction:    c.Stat().Direction.String(),
+				Opened:       c.Stat().Opened,
+				Transient:    c.Stat().Transient,
+			},
+		}
+
+		go func() {
+			if err := s.cfg.KinesisProducer.PutRecord(s.ctx, evt); err != nil {
+				log.WithError(err).Warn("Failed to put event payload")
+			}
+		}()
+	}
+
 	s.host.Network().Notify(&network.NotifyBundle{
 		ConnectedF: func(net network.Network, conn network.Conn) {
+			eventHandler(net, conn, "CONNECTED")
+
 			remotePeer := conn.RemotePeer()
 			disconnectFromPeer := func() {
 				s.peers.SetConnectionState(remotePeer, peers.PeerDisconnecting)
@@ -145,6 +177,9 @@ func (s *Service) AddConnectionHandler(reqFunc, goodByeFunc func(ctx context.Con
 				}
 				validPeerConnection()
 			}()
+		},
+		DisconnectedF: func(net network.Network, conn network.Conn) {
+			eventHandler(net, conn, "DISCONNECTED")
 		},
 	})
 }

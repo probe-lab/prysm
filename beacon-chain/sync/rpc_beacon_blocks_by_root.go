@@ -70,7 +70,7 @@ func (s *Service) sendRecentBeaconBlocksRequest(ctx context.Context, requests *t
 }
 
 // beaconBlocksRootRPCHandler looks up the request blocks from the database from the given block roots.
-func (s *Service) beaconBlocksRootRPCHandler(ctx context.Context, msg interface{}, stream libp2pcore.Stream) error {
+func (s *Service) beaconBlocksRootRPCHandler(ctx context.Context, msg interface{}, stream libp2pcore.Stream) (map[string]any, error) {
 	ctx, cancel := context.WithTimeout(ctx, ttfbTimeout)
 	defer cancel()
 	SetRPCStreamDeadlines(stream)
@@ -78,25 +78,26 @@ func (s *Service) beaconBlocksRootRPCHandler(ctx context.Context, msg interface{
 
 	rawMsg, ok := msg.(*types.BeaconBlockByRootsReq)
 	if !ok {
-		return errors.New("message is not type BeaconBlockByRootsReq")
+		return nil, errors.New("message is not type BeaconBlockByRootsReq")
 	}
 	blockRoots := *rawMsg
 	if err := s.rateLimiter.validateRequest(stream, uint64(len(blockRoots))); err != nil {
-		return err
+		return nil, err
 	}
+
 	if len(blockRoots) == 0 {
 		// Add to rate limiter in the event no
 		// roots are requested.
 		s.rateLimiter.add(stream, 1)
 		s.writeErrorResponseToStream(responseCodeInvalidRequest, "no block roots provided in request", stream)
-		return errors.New("no block roots provided")
+		return nil, errors.New("no block roots provided")
 	}
 
 	currentEpoch := slots.ToEpoch(s.cfg.clock.CurrentSlot())
 	if uint64(len(blockRoots)) > params.MaxRequestBlock(currentEpoch) {
 		s.cfg.p2p.Peers().Scorers().BadResponsesScorer().Increment(stream.Conn().RemotePeer())
 		s.writeErrorResponseToStream(responseCodeInvalidRequest, "requested more than the max block limit", stream)
-		return errors.New("requested more than the max block limit")
+		return nil, errors.New("requested more than the max block limit")
 	}
 	s.rateLimiter.add(stream, int64(len(blockRoots)))
 
@@ -105,7 +106,7 @@ func (s *Service) beaconBlocksRootRPCHandler(ctx context.Context, msg interface{
 		if err != nil {
 			log.WithError(err).Debug("Could not fetch block")
 			s.writeErrorResponseToStream(responseCodeServerError, types.ErrGeneric.Error(), stream)
-			return err
+			return nil, err
 		}
 		if err := blocks.BeaconBlockIsNil(blk); err != nil {
 			continue
@@ -120,17 +121,17 @@ func (s *Service) beaconBlocksRootRPCHandler(ctx context.Context, msg interface{
 					log.WithError(err).Error("Could not get reconstruct full block from blinded body")
 				}
 				s.writeErrorResponseToStream(responseCodeServerError, types.ErrGeneric.Error(), stream)
-				return err
+				return nil, err
 			}
 		}
 
 		if err := s.chunkBlockWriter(stream, blk); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	closeStream(stream, log)
-	return nil
+	return nil, nil
 }
 
 // sendAndSaveBlobSidecars sends the blob request and saves received sidecars.

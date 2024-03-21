@@ -34,13 +34,19 @@ var backOffTime = map[primitives.SSZUint64]time.Duration{
 }
 
 // goodbyeRPCHandler reads the incoming goodbye rpc message from the peer.
-func (s *Service) goodbyeRPCHandler(_ context.Context, msg interface{}, stream libp2pcore.Stream) error {
+func (s *Service) goodbyeRPCHandler(_ context.Context, msg interface{}, stream libp2pcore.Stream) (map[string]any, error) {
 	SetRPCStreamDeadlines(stream)
 
 	m, ok := msg.(*primitives.SSZUint64)
 	if !ok {
-		return fmt.Errorf("wrong message type for goodbye, got %T, wanted *uint64", msg)
+		return nil, fmt.Errorf("wrong message type for goodbye, got %T, wanted *uint64", msg)
 	}
+
+	traceData := map[string]any{
+		"Code":   m,
+		"Reason": p2ptypes.GoodbyeCodeMessages[*m],
+	}
+
 	if err := s.rateLimiter.validateRequest(stream, 1); err != nil {
 		log.WithError(err).Debug("Goodbye message from rate-limited peer.")
 	} else {
@@ -50,7 +56,7 @@ func (s *Service) goodbyeRPCHandler(_ context.Context, msg interface{}, stream l
 	log.WithField("peer", stream.Conn().RemotePeer()).Trace("Peer has sent a goodbye message")
 	s.cfg.p2p.Peers().SetNextValidTime(stream.Conn().RemotePeer(), goodByeBackoff(*m))
 	// closes all streams with the peer
-	return s.cfg.p2p.Disconnect(stream.Conn().RemotePeer())
+	return traceData, s.cfg.p2p.Disconnect(stream.Conn().RemotePeer())
 }
 
 // disconnectBadPeer checks whether peer is considered bad by some scorer, and tries to disconnect

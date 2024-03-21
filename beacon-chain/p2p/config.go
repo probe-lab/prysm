@@ -1,6 +1,7 @@
 package p2p
 
 import (
+	gk "github.com/dennis-tra/go-kinesis"
 	statefeed "github.com/prysmaticlabs/prysm/v5/beacon-chain/core/feed/state"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/db"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/startup"
@@ -33,6 +34,7 @@ type Config struct {
 	DenyListCIDR         []string
 	StateNotifier        statefeed.Notifier
 	DB                   db.ReadOnlyDatabase
+	KinesisProducer      *gk.Producer
 	ClockWaiter          startup.ClockWaiter
 }
 

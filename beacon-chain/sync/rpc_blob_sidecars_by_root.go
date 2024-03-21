@@ -21,7 +21,7 @@ import (
 
 // blobSidecarByRootRPCHandler handles the /eth2/beacon_chain/req/blob_sidecars_by_root/1/ RPC request.
 // spec: https://github.com/ethereum/consensus-specs/blob/a7e45db9ac2b60a33e144444969ad3ac0aae3d4c/specs/deneb/p2p-interface.md#blobsidecarsbyroot-v1
-func (s *Service) blobSidecarByRootRPCHandler(ctx context.Context, msg interface{}, stream libp2pcore.Stream) error {
+func (s *Service) blobSidecarByRootRPCHandler(ctx context.Context, msg interface{}, stream libp2pcore.Stream) (map[string]any, error) {
 	ctx, span := trace.StartSpan(ctx, "sync.blobSidecarByRootRPCHandler")
 	defer span.End()
 	ctx, cancel := context.WithTimeout(ctx, ttfbTimeout)
@@ -30,14 +30,14 @@ func (s *Service) blobSidecarByRootRPCHandler(ctx context.Context, msg interface
 	log := log.WithField("handler", p2p.BlobSidecarsByRootName[1:]) // slice the leading slash off the name var
 	ref, ok := msg.(*types.BlobSidecarsByRootReq)
 	if !ok {
-		return errors.New("message is not type BlobSidecarsByRootReq")
+		return nil, errors.New("message is not type BlobSidecarsByRootReq")
 	}
 
 	blobIdents := *ref
 	if err := validateBlobByRootRequest(blobIdents); err != nil {
 		s.cfg.p2p.Peers().Scorers().BadResponsesScorer().Increment(stream.Conn().RemotePeer())
 		s.writeErrorResponseToStream(responseCodeInvalidRequest, err.Error(), stream)
-		return err
+		return nil, err
 	}
 	// Sort the identifiers so that requests for the same blob root will be adjacent, minimizing db lookups.
 	sort.Sort(blobIdents)
@@ -52,13 +52,13 @@ func (s *Service) blobSidecarByRootRPCHandler(ctx context.Context, msg interface
 	cs := s.cfg.clock.CurrentSlot()
 	minReqSlot, err := BlobRPCMinValidSlot(cs)
 	if err != nil {
-		return errors.Wrapf(err, "unexpected error computing min valid blob request slot, current_slot=%d", cs)
+		return nil, errors.Wrapf(err, "unexpected error computing min valid blob request slot, current_slot=%d", cs)
 	}
 
 	for i := range blobIdents {
 		if err := ctx.Err(); err != nil {
 			closeStream(stream, log)
-			return err
+			return nil, err
 		}
 
 		// Throttle request processing to no more than batchSize/sec.
@@ -78,7 +78,7 @@ func (s *Service) blobSidecarByRootRPCHandler(ctx context.Context, msg interface
 			}
 			log.WithError(err).Errorf("unexpected db error retrieving BlobSidecar, root=%x, index=%d", root, idx)
 			s.writeErrorResponseToStream(responseCodeServerError, types.ErrGeneric.Error(), stream)
-			return err
+			return nil, err
 		}
 
 		// If any root in the request content references a block earlier than minimum_request_epoch,
@@ -89,7 +89,7 @@ func (s *Service) blobSidecarByRootRPCHandler(ctx context.Context, msg interface
 			s.writeErrorResponseToStream(responseCodeResourceUnavailable, types.ErrBlobLTMinRequest.Error(), stream)
 			log.WithError(types.ErrBlobLTMinRequest).
 				Debugf("requested blob for block %#x before minimum_request_epoch", blobIdents[i].BlockRoot)
-			return types.ErrBlobLTMinRequest
+			return nil, types.ErrBlobLTMinRequest
 		}
 
 		SetStreamWriteDeadline(stream, defaultWriteDuration)
@@ -97,11 +97,11 @@ func (s *Service) blobSidecarByRootRPCHandler(ctx context.Context, msg interface
 			log.WithError(chunkErr).Debug("Could not send a chunked response")
 			s.writeErrorResponseToStream(responseCodeServerError, types.ErrGeneric.Error(), stream)
 			tracing.AnnotateError(span, chunkErr)
-			return chunkErr
+			return nil, chunkErr
 		}
 	}
 	closeStream(stream, log)
-	return nil
+	return nil, nil
 }
 
 func validateBlobByRootRequest(blobIdents types.BlobSidecarsByRootReq) error {

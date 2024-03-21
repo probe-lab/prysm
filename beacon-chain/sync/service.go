@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	gk "github.com/dennis-tra/go-kinesis"
 	lru "github.com/hashicorp/golang-lru"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	libp2pcore "github.com/libp2p/go-libp2p/core"
@@ -158,6 +159,7 @@ type Service struct {
 	newBlobVerifier                  verification.NewBlobVerifier
 	availableBlocker                 coverage.AvailableBlocker
 	ctxMap                           ContextByteVersions
+	kinprod                          *gk.Producer
 }
 
 // NewService initializes new regular sync service.

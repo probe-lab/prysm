@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/urfave/cli/v2"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -16,7 +18,11 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/kinesis"
+	gk "github.com/dennis-tra/go-kinesis"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/pkg/errors"
 	"github.com/prysmaticlabs/prysm/v5/api/server/httprest"
@@ -68,7 +74,6 @@ import (
 	"github.com/prysmaticlabs/prysm/v5/runtime/prereqs"
 	"github.com/prysmaticlabs/prysm/v5/runtime/version"
 	"github.com/sirupsen/logrus"
-	"github.com/urfave/cli/v2"
 )
 
 const testSkipPowFlag = "test-skip-pow"
@@ -121,6 +126,7 @@ type BeaconNode struct {
 	BlobStorageOptions      []filesystem.BlobStorageOption
 	verifyInitWaiter        *verification.InitializerWaiter
 	syncChecker             *initialsync.SyncChecker
+	kinesisProducer         *gk.Producer
 }
 
 // New creates a new node instance, sets up configuration options, and registers
@@ -287,6 +293,11 @@ func startBaseServices(cliCtx *cli.Context, beacon *BeaconNode, depositAddress s
 	}
 	beacon.BlobStorage.WarmCache()
 
+	log.Debugln("Starting Kinesis Producer")
+	if err := beacon.initKinesisProducer(cliCtx); err != nil {
+		return nil, err
+	}
+
 	log.Debugln("Starting Slashing DB")
 	if err := beacon.startSlasherDB(cliCtx); err != nil {
 		return nil, errors.Wrap(err, "could not start slashing DB")
@@ -420,6 +431,17 @@ func (b *BeaconNode) Start() {
 		"version": version.Version(),
 	}).Info("Starting beacon node")
 
+	go func() {
+		if err := b.kinesisProducer.Start(b.ctx); err != nil {
+			log.WithError(err).Warn("Kinesis producer failed to start")
+		}
+	}()
+
+	if err := b.kinesisProducer.WaitIdle(b.ctx); err != nil {
+		log.WithError(err).Warn("Kinesis producer failed to become idle")
+		return
+	}
+
 	b.services.StartAll()
 
 	stop := b.stop
@@ -444,6 +466,12 @@ func (b *BeaconNode) Start() {
 
 	// Wait for stop channel to be closed.
 	<-stop
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := b.kinesisProducer.WaitStopped(shutdownCtx); err != nil {
+		log.WithError(err).Warn("failed waiting for kinesis producer to stop")
+	}
 }
 
 // Close handles graceful shutdown of the system.
@@ -632,6 +660,32 @@ func (b *BeaconNode) startSlasherDB(cliCtx *cli.Context) error {
 	return nil
 }
 
+func (b *BeaconNode) initKinesisProducer(cliCtx *cli.Context) error {
+	region := cliCtx.String(cmd.KinesisRegion.Name)
+	if region == "" {
+		return fmt.Errorf("no kinesis data stream region given")
+	}
+
+	streamName := cliCtx.String(cmd.KinesisStream.Name)
+	if streamName == "" {
+		return fmt.Errorf("no kinesis data stream name given")
+	}
+
+	awsConfig, err := config.LoadDefaultConfig(cliCtx.Context, config.WithDefaultRegion(region))
+	if err != nil {
+		return fmt.Errorf("load aws config: %w", err)
+	}
+	client := kinesis.NewFromConfig(awsConfig)
+	kinesisCfg := gk.DefaultProducerConfig()
+	kinesisCfg.Log = slog.Default()
+	b.kinesisProducer, err = gk.NewProducer(client, streamName, kinesisCfg)
+	if err != nil {
+		return fmt.Errorf("new kinesis producer: %w", err)
+	}
+
+	return nil
+}
+
 func (b *BeaconNode) startStateGen(ctx context.Context, bfs coverage.AvailableBlocker, fc forkchoice.ForkChoicer) error {
 	opts := []stategen.Option{stategen.WithAvailableBlocker(bfs)}
 	sg := stategen.New(b.db, fc, opts...)
@@ -693,6 +747,7 @@ func (b *BeaconNode) registerP2P(cliCtx *cli.Context) error {
 		EnableUPnP:           cliCtx.Bool(cmd.EnableUPnPFlag.Name),
 		StateNotifier:        b,
 		DB:                   b.db,
+		KinesisProducer:      b.kinesisProducer,
 		ClockWaiter:          b.clockWaiter,
 	})
 	if err != nil {
@@ -845,6 +900,7 @@ func (b *BeaconNode) registerSyncService(initialSyncComplete chan struct{}, bFil
 		regularsync.WithBlobStorage(b.BlobStorage),
 		regularsync.WithVerifierWaiter(b.verifyInitWaiter),
 		regularsync.WithAvailableBlocker(bFillStore),
+		regularsync.WithKinesisProducer(b.kinesisProducer),
 	)
 	return b.services.RegisterService(rs)
 }

@@ -279,6 +279,17 @@ var (
 		Usage:   "Target file path for outputting a generated JWT secret to be used for JSON-RPC authentication",
 		Aliases: []string{"o"},
 	}
+	// KinesisRegion specifies the Kinesis Data Stream Region
+	KinesisRegion = &cli.StringFlag{
+		Name:  "kinesis-region",
+		Usage: "The Kinesis Data Stream Region",
+		Value: "us-east-1",
+	}
+	// KinesisStream specifies the Kinesis Data Stream Name
+	KinesisStream = &cli.StringFlag{
+		Name:  "kinesis-stream",
+		Usage: "The Kinesis Data Stream Name",
+	}
 )
 
 // LoadFlagsFromConfig sets flags values from config file if ConfigFileFlag is set.
