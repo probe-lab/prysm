@@ -41,3 +41,6 @@ jwt.hex
 
 # manual testing
 tmp
+
+# pre-compiled binary
+probelab/beacon-chain
