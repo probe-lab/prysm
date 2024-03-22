@@ -44,3 +44,6 @@ tmp
 
 # spectest coverage reports
 report.txt
+
+# pre-compiled binary
+probelab/beacon-chain
