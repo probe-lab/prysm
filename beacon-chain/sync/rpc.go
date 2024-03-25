@@ -258,7 +258,12 @@ func (s *Service) registerRPC(baseTopic string, handle rpcHandler) {
 				s.cfg.p2p.Peers().Scorers().BadResponsesScorer().Increment(stream.Conn().RemotePeer())
 				return
 			}
+
 			traceData, err := handle(ctx, msg, stream)
+			if traceData == nil {
+				traceData = map[string]any{}
+			}
+
 			if err != nil {
 				traceData["Error"] = err.Error()
 			} else {
@@ -286,6 +291,10 @@ func (s *Service) registerRPC(baseTopic string, handle rpcHandler) {
 				return
 			}
 			traceData, err := handle(ctx, nTyp.Elem().Interface(), stream)
+			if traceData == nil {
+				traceData = map[string]any{}
+			}
+
 			if err != nil {
 				traceData["Error"] = err.Error()
 			} else {
