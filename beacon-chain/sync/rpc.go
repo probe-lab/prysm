@@ -2,13 +2,18 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
+	"maps"
 	"reflect"
 	"runtime/debug"
 	"strings"
 	"time"
 
+	gk "github.com/dennis-tra/go-kinesis"
+	"github.com/google/uuid"
 	libp2pcore "github.com/libp2p/go-libp2p/core"
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	ssz "github.com/prysmaticlabs/fastssz"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/p2p"
@@ -30,7 +35,7 @@ var respTimeout = params.BeaconConfig().RespTimeoutDuration()
 // rpcHandler is responsible for handling and responding to any incoming message.
 // This method may return an error to internal monitoring, but the error will
 // not be relayed to the peer.
-type rpcHandler func(context.Context, interface{}, libp2pcore.Stream) error
+type rpcHandler func(context.Context, interface{}, libp2pcore.Stream) (map[string]any, error)
 
 // registerRPCHandlers for p2p RPC.
 func (s *Service) registerRPCHandlers() {
@@ -137,6 +142,31 @@ func (s *Service) registerRPC(baseTopic string, handle rpcHandler) {
 		ctx, cancel := context.WithTimeout(s.ctx, ttfbTimeout)
 		defer cancel()
 
+		traceType := "HANDLE_STREAM"
+		// Usual protocol string: /eth2/beacon_chain/req/metadata/2/ssz_snappy
+		parts := strings.Split(string(stream.Protocol()), "/")
+		if len(parts) > 4 {
+			traceType = "HANDLE_" + strings.ToUpper(parts[4])
+		}
+
+		commonData := map[string]any{
+			"PeerID":     stream.Conn().RemotePeer(),
+			"ProtocolID": stream.Protocol(),
+		}
+
+		defer func() {
+			traceEvt := &traceEvent{
+				Type:      traceType,
+				PeerID:    s.cfg.p2p.Host().ID(),
+				Timestamp: time.Now(),
+				Payload:   commonData,
+			}
+
+			if err := s.kinprod.PutRecord(ctx, traceEvt); err != nil {
+				log.WithError(err).Warn("failed to put record")
+			}
+		}()
+
 		// Resetting after closing is a no-op so defer a reset in case something goes wrong.
 		// It's up to the handler to Close the stream (send an EOF) if
 		// it successfully writes a response. We don't blindly call
@@ -155,6 +185,7 @@ func (s *Service) registerRPC(baseTopic string, handle rpcHandler) {
 
 		// Check before hand that peer is valid.
 		if s.cfg.p2p.Peers().IsBad(stream.Conn().RemotePeer()) {
+			commonData["Error"] = "bad peer"
 			if err := s.sendGoodByeAndDisconnect(ctx, p2ptypes.GoodbyeCodeBanned, stream.Conn().RemotePeer()); err != nil {
 				log.WithError(err).Debug("Could not disconnect from peer")
 			}
@@ -163,6 +194,7 @@ func (s *Service) registerRPC(baseTopic string, handle rpcHandler) {
 		// Validate request according to peer limits.
 		if err := s.rateLimiter.validateRawRpcRequest(stream); err != nil {
 			log.WithError(err).Debug("Could not validate rpc request from peer")
+			commonData["Error"] = "rpc request validation failed"
 			return
 		}
 		s.rateLimiter.addRawStream(stream)
@@ -187,7 +219,14 @@ func (s *Service) registerRPC(baseTopic string, handle rpcHandler) {
 		// since metadata requests do not have any data in the payload, we
 		// do not decode anything.
 		if baseTopic == p2p.RPCMetaDataTopicV1 || baseTopic == p2p.RPCMetaDataTopicV2 {
-			if err := handle(ctx, base, stream); err != nil {
+			traceData, err := handle(ctx, base, stream)
+			if err != nil {
+				traceData["Error"] = err.Error()
+			} else {
+				traceData["Error"] = nil
+			}
+			maps.Copy(commonData, traceData)
+			if err != nil {
 				messageFailedProcessingCounter.WithLabelValues(topic).Inc()
 				if err != p2ptypes.ErrWrongForkDigestVersion {
 					log.WithError(err).Debug("Could not handle p2p RPC")
@@ -212,7 +251,19 @@ func (s *Service) registerRPC(baseTopic string, handle rpcHandler) {
 				s.cfg.p2p.Peers().Scorers().BadResponsesScorer().Increment(stream.Conn().RemotePeer())
 				return
 			}
-			if err := handle(ctx, msg, stream); err != nil {
+
+			traceData, err := handle(ctx, msg, stream)
+			if traceData == nil {
+				traceData = map[string]any{}
+			}
+
+			if err != nil {
+				traceData["Error"] = err.Error()
+			} else {
+				traceData["Error"] = nil
+			}
+			maps.Copy(commonData, traceData)
+			if err != nil {
 				messageFailedProcessingCounter.WithLabelValues(topic).Inc()
 				if err != p2ptypes.ErrWrongForkDigestVersion {
 					log.WithError(err).Debug("Could not handle p2p RPC")
@@ -232,7 +283,18 @@ func (s *Service) registerRPC(baseTopic string, handle rpcHandler) {
 				s.cfg.p2p.Peers().Scorers().BadResponsesScorer().Increment(stream.Conn().RemotePeer())
 				return
 			}
-			if err := handle(ctx, nTyp.Elem().Interface(), stream); err != nil {
+			traceData, err := handle(ctx, nTyp.Elem().Interface(), stream)
+			if traceData == nil {
+				traceData = map[string]any{}
+			}
+
+			if err != nil {
+				traceData["Error"] = err.Error()
+			} else {
+				traceData["Error"] = nil
+			}
+			maps.Copy(commonData, traceData)
+			if err != nil {
 				messageFailedProcessingCounter.WithLabelValues(topic).Inc()
 				if err != p2ptypes.ErrWrongForkDigestVersion {
 					log.WithError(err).Debug("Could not handle p2p RPC")
@@ -252,4 +314,34 @@ func logStreamErrors(err error, topic string) {
 		return
 	}
 	log.WithError(err).WithField("topic", topic).Debug("Could not decode stream message")
+}
+
+type traceEvent struct {
+	Type      string
+	PeerID    peer.ID
+	Timestamp time.Time
+	Payload   any `json:"Data"` // cannot use field "Data" because of gk.Record method
+}
+
+var _ gk.Record = (*traceEvent)(nil)
+
+func (t *traceEvent) PartitionKey() string {
+	u, err := uuid.NewUUID()
+	if err != nil {
+		return t.PeerID.String()
+	}
+	return u.String()
+}
+
+func (t *traceEvent) ExplicitHashKey() *string {
+	return nil
+}
+
+func (t *traceEvent) Data() []byte {
+	data, err := json.Marshal(t)
+	if err != nil {
+		log.WithError(err).Warn("Failed to marshal trace event")
+		return nil
+	}
+	return data
 }

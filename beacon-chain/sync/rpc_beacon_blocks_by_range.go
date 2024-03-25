@@ -19,7 +19,7 @@ import (
 )
 
 // beaconBlocksByRangeRPCHandler looks up the request blocks from the database from a given start block.
-func (s *Service) beaconBlocksByRangeRPCHandler(ctx context.Context, msg interface{}, stream libp2pcore.Stream) error {
+func (s *Service) beaconBlocksByRangeRPCHandler(ctx context.Context, msg interface{}, stream libp2pcore.Stream) (map[string]any, error) {
 	ctx, span := trace.StartSpan(ctx, "sync.BeaconBlocksByRangeHandler")
 	defer span.End()
 	ctx, cancel := context.WithTimeout(ctx, respTimeout)
@@ -28,7 +28,12 @@ func (s *Service) beaconBlocksByRangeRPCHandler(ctx context.Context, msg interfa
 
 	m, ok := msg.(*pb.BeaconBlocksByRangeRequest)
 	if !ok {
-		return errors.New("message is not type *pb.BeaconBlockByRangeRequest")
+		return nil, errors.New("message is not type *pb.BeaconBlockByRangeRequest")
+	}
+	traceData := map[string]any{
+		"Start": m.GetStartSlot(),
+		"Count": m.GetCount(),
+		"Step":  m.GetStep(),
 	}
 	log.WithField("startSlot", m.StartSlot).WithField("count", m.Count).Debug("Serving block by range request")
 	rp, err := validateRangeRequest(m, s.cfg.clock.CurrentSlot())
@@ -36,19 +41,19 @@ func (s *Service) beaconBlocksByRangeRPCHandler(ctx context.Context, msg interfa
 		s.writeErrorResponseToStream(responseCodeInvalidRequest, err.Error(), stream)
 		s.cfg.p2p.Peers().Scorers().BadResponsesScorer().Increment(stream.Conn().RemotePeer())
 		tracing.AnnotateError(span, err)
-		return err
+		return traceData, err
 	}
 	available := s.validateRangeAvailability(rp)
 	if !available {
 		log.Debug("error in validating range availability")
 		s.writeErrorResponseToStream(responseCodeResourceUnavailable, p2ptypes.ErrResourceUnavailable.Error(), stream)
 		tracing.AnnotateError(span, err)
-		return nil
+		return traceData, nil
 	}
 
 	blockLimiter, err := s.rateLimiter.topicCollector(string(stream.Protocol()))
 	if err != nil {
-		return err
+		return traceData, err
 	}
 	remainingBucketCapacity := blockLimiter.Remaining(stream.Conn().RemotePeer().String())
 	span.AddAttributes(
@@ -67,10 +72,10 @@ func (s *Service) beaconBlocksByRangeRPCHandler(ctx context.Context, msg interfa
 		log.WithError(err).Info("error in BlocksByRange batch")
 		s.writeErrorResponseToStream(responseCodeServerError, p2ptypes.ErrGeneric.Error(), stream)
 		tracing.AnnotateError(span, err)
-		return err
+		return traceData, err
 	}
 
-	// prevRoot is used to ensure that returned chains are strictly linear for singular steps
+	// prevRoot is used to ensure that return ed chains are strictly linear for singular steps
 	// by comparing the previous root of the block in the list with the current block's parent.
 	var batch blockBatch
 	var more bool
@@ -78,7 +83,7 @@ func (s *Service) beaconBlocksByRangeRPCHandler(ctx context.Context, msg interfa
 		batchStart := time.Now()
 		if err := s.writeBlockBatchToStream(ctx, batch, stream); err != nil {
 			s.writeErrorResponseToStream(responseCodeServerError, p2ptypes.ErrGeneric.Error(), stream)
-			return err
+			return traceData, err
 		}
 		rpcBlocksByRangeResponseLatency.Observe(float64(time.Since(batchStart).Milliseconds()))
 	}
@@ -86,10 +91,10 @@ func (s *Service) beaconBlocksByRangeRPCHandler(ctx context.Context, msg interfa
 		log.WithError(err).Debug("error in BlocksByRange batch")
 		s.writeErrorResponseToStream(responseCodeServerError, p2ptypes.ErrGeneric.Error(), stream)
 		tracing.AnnotateError(span, err)
-		return err
+		return traceData, err
 	}
 	closeStream(stream, log)
-	return nil
+	return traceData, nil
 }
 
 type rangeParams struct {

@@ -3,6 +3,7 @@ package sync
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -189,17 +190,32 @@ func (s *Service) reValidatePeer(ctx context.Context, id peer.ID) error {
 
 // statusRPCHandler reads the incoming Status RPC from the peer and responds with our version of a status message.
 // This handler will disconnect any peer that does not match our fork version.
-func (s *Service) statusRPCHandler(ctx context.Context, msg interface{}, stream libp2pcore.Stream) error {
+func (s *Service) statusRPCHandler(ctx context.Context, msg interface{}, stream libp2pcore.Stream) (map[string]any, error) {
+	statusTraceData := func(status *pb.Status) map[string]any {
+		return map[string]any{
+			"ForkDigest":     hex.EncodeToString(status.ForkDigest),
+			"HeadRoot":       hex.EncodeToString(status.HeadRoot),
+			"HeadSlot":       status.HeadSlot,
+			"FinalizedRoot":  hex.EncodeToString(status.FinalizedRoot),
+			"FinalizedEpoch": status.FinalizedEpoch,
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, ttfbTimeout)
 	defer cancel()
 	SetRPCStreamDeadlines(stream)
 	log := log.WithField("handler", "status")
 	m, ok := msg.(*pb.Status)
 	if !ok {
-		return errors.New("message is not type *pb.Status")
+		return nil, errors.New("message is not type *pb.Status")
 	}
+
+	traceData := map[string]any{
+		"Request": statusTraceData(m),
+	}
+
 	if err := s.rateLimiter.validateRequest(stream, 1); err != nil {
-		return err
+		return traceData, err
 	}
 	s.rateLimiter.add(stream, 1)
 
@@ -217,15 +233,17 @@ func (s *Service) statusRPCHandler(ctx context.Context, msg interface{}, stream 
 		case p2ptypes.ErrWrongForkDigestVersion:
 			// Respond with our status and disconnect with the peer.
 			s.cfg.p2p.Peers().SetChainState(remotePeer, m)
-			if err := s.respondWithStatus(ctx, stream); err != nil {
-				return err
+			resp, err := s.respondWithStatus(ctx, stream)
+			if err != nil {
+				return traceData, err
 			}
+			traceData["Response"] = statusTraceData(resp)
 			// Close before disconnecting, and wait for the other end to ack our response.
 			closeStreamAndWait(stream, log)
 			if err := s.sendGoodByeAndDisconnect(ctx, p2ptypes.GoodbyeCodeWrongNetwork, remotePeer); err != nil {
-				return err
+				return traceData, err
 			}
-			return nil
+			return traceData, nil
 		default:
 			respCode = responseCodeInvalidRequest
 			s.cfg.p2p.Peers().Scorers().BadResponsesScorer().Increment(remotePeer)
@@ -241,28 +259,31 @@ func (s *Service) statusRPCHandler(ctx context.Context, msg interface{}, stream 
 		}
 		closeStreamAndWait(stream, log)
 		if err := s.sendGoodByeAndDisconnect(ctx, p2ptypes.GoodbyeCodeGenericError, remotePeer); err != nil {
-			return err
+			return traceData, err
 		}
-		return originalErr
+		return traceData, originalErr
 	}
 	s.cfg.p2p.Peers().SetChainState(remotePeer, m)
 
-	if err := s.respondWithStatus(ctx, stream); err != nil {
-		return err
+	resp, err := s.respondWithStatus(ctx, stream)
+	if err != nil {
+		return traceData, err
 	}
+	traceData["Response"] = statusTraceData(resp)
+
 	closeStream(stream, log)
-	return nil
+	return traceData, nil
 }
 
-func (s *Service) respondWithStatus(ctx context.Context, stream network.Stream) error {
+func (s *Service) respondWithStatus(ctx context.Context, stream network.Stream) (*pb.Status, error) {
 	headRoot, err := s.cfg.chain.HeadRoot(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	forkDigest, err := s.currentForkDigest()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cp := s.cfg.chain.FinalizedCheckpt()
 	resp := &pb.Status{
@@ -277,7 +298,7 @@ func (s *Service) respondWithStatus(ctx context.Context, stream network.Stream) 
 		log.WithError(err).Debug("Could not write to stream")
 	}
 	_, err = s.cfg.p2p.Encoding().EncodeWithMaxLength(stream, resp)
-	return err
+	return resp, err
 }
 
 func (s *Service) validateStatusMessage(ctx context.Context, msg *pb.Status) error {

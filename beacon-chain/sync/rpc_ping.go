@@ -16,16 +16,21 @@ import (
 )
 
 // pingHandler reads the incoming ping rpc message from the peer.
-func (s *Service) pingHandler(_ context.Context, msg interface{}, stream libp2pcore.Stream) error {
+func (s *Service) pingHandler(_ context.Context, msg interface{}, stream libp2pcore.Stream) (map[string]any, error) {
 	SetRPCStreamDeadlines(stream)
 
 	m, ok := msg.(*primitives.SSZUint64)
 	if !ok {
-		return fmt.Errorf("wrong message type for ping, got %T, wanted *uint64", msg)
+		return nil, fmt.Errorf("wrong message type for ping, got %T, wanted *uint64", msg)
 	}
 	if err := s.rateLimiter.validateRequest(stream, 1); err != nil {
-		return err
+		return nil, err
 	}
+
+	traceData := map[string]any{
+		"ReceivedSeq": m,
+	}
+
 	s.rateLimiter.add(stream, 1)
 	valid, err := s.validateSequenceNum(*m, stream.Conn().RemotePeer())
 	if err != nil {
@@ -34,21 +39,23 @@ func (s *Service) pingHandler(_ context.Context, msg interface{}, stream libp2pc
 			s.cfg.p2p.Peers().Scorers().BadResponsesScorer().Increment(stream.Conn().RemotePeer())
 			s.writeErrorResponseToStream(responseCodeInvalidRequest, p2ptypes.ErrInvalidSequenceNum.Error(), stream)
 		}
-		return err
+		return traceData, err
 	}
+	seq := s.cfg.p2p.MetadataSeq()
+	traceData["SentSeq"] = seq
 	if _, err := stream.Write([]byte{responseCodeSuccess}); err != nil {
-		return err
+		return traceData, err
 	}
-	sq := primitives.SSZUint64(s.cfg.p2p.MetadataSeq())
+	sq := primitives.SSZUint64(seq)
 	if _, err := s.cfg.p2p.Encoding().EncodeWithMaxLength(stream, &sq); err != nil {
-		return err
+		return traceData, err
 	}
 
 	closeStream(stream, log)
 
 	if valid {
 		// If the sequence number was valid we're done.
-		return nil
+		return traceData, nil
 	}
 
 	// The sequence number was not valid.  Start our own ping back to the peer.
@@ -70,7 +77,7 @@ func (s *Service) pingHandler(_ context.Context, msg interface{}, stream libp2pc
 		s.cfg.p2p.Peers().SetMetadata(stream.Conn().RemotePeer(), md)
 	}()
 
-	return nil
+	return traceData, nil
 }
 
 func (s *Service) sendPingRequest(ctx context.Context, id peer.ID) error {
