@@ -14,6 +14,11 @@ import (
 )
 
 const (
+	EventStreamBase = "events"
+)
+
+const (
+	// standard Beacon API topics
 	EventHead                        = "head"
 	EventBlock                       = "block"
 	EventAttestation                 = "attestation"
@@ -28,8 +33,11 @@ const (
 	EventLightClientOptimisticUpdate = "light_client_optimistic_update"
 	EventPayloadAttributes           = "payload_attributes"
 	EventBlobSidecar                 = "blob_sidecar"
-	EventError                       = "error"
-	EventConnectionError             = "connection_error"
+	// copy of the events but debugging purposes
+	EventGetBlobsV1Requests = "get_blobs_v1_requests"
+	// errors
+	EventError           = "error"
+	EventConnectionError = "connection_error"
 )
 
 var (
@@ -53,10 +61,11 @@ type EventStream struct {
 	ctx        context.Context
 	httpClient *http.Client
 	host       string
+	base       string
 	topics     []string
 }
 
-func NewEventStream(ctx context.Context, httpClient *http.Client, host string, topics []string) (*EventStream, error) {
+func NewEventStream(ctx context.Context, httpClient *http.Client, host string, base string, topics []string) (*EventStream, error) {
 	// Check if the host is a valid URL
 	_, err := url.ParseRequestURI(host)
 	if err != nil {
@@ -65,11 +74,15 @@ func NewEventStream(ctx context.Context, httpClient *http.Client, host string, t
 	if len(topics) == 0 {
 		return nil, errors.New("no topics provided")
 	}
+	if base == "" {
+		return nil, errors.New("no base provided")
+	}
 
 	return &EventStream{
 		ctx:        ctx,
 		httpClient: httpClient,
 		host:       host,
+		base:       base,
 		topics:     topics,
 	}, nil
 }
@@ -77,7 +90,7 @@ func NewEventStream(ctx context.Context, httpClient *http.Client, host string, t
 func (h *EventStream) Subscribe(eventsChannel chan<- *Event) {
 	allTopics := strings.Join(h.topics, ",")
 	log.WithField("topics", allTopics).Info("Listening to Beacon API events")
-	fullUrl := h.host + "/eth/v1/events?topics=" + allTopics
+	fullUrl := h.host + "/eth/v1/" + h.base + "?topics=" + allTopics
 	req, err := http.NewRequestWithContext(h.ctx, http.MethodGet, fullUrl, nil)
 	if err != nil {
 		eventsChannel <- &Event{

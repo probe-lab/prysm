@@ -214,6 +214,10 @@ func (n *SimpleNotifier) OperationFeed() event.SubscriberSender {
 	return n.Feed
 }
 
+func (n *SimpleNotifier) DebugEventFeed() event.SubscriberSender {
+	return n.Feed
+}
+
 // OperationNotifier mocks the same method in the chain service.
 func (s *ChainService) OperationNotifier() opfeed.Notifier {
 	if s.opNotifier == nil {
@@ -229,6 +233,14 @@ type MockOperationNotifier struct {
 
 // OperationFeed returns an operation feed.
 func (mon *MockOperationNotifier) OperationFeed() event.SubscriberSender {
+	if mon.feed == nil {
+		mon.feed = new(event.Feed)
+	}
+	return mon.feed
+}
+
+// OperationFeed returns an operation feed.
+func (mon *MockOperationNotifier) DebugEventFeed() event.SubscriberSender {
 	if mon.feed == nil {
 		mon.feed = new(event.Feed)
 	}

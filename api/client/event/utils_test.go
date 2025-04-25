@@ -8,7 +8,7 @@ import (
 	"github.com/prysmaticlabs/prysm/v5/testing/require"
 )
 
-func TestScanLinesWithCarriage(t *testing.T) {
+func TestscanLinesWithCarriage(t *testing.T) {
 	testCases := []struct {
 		name     string
 		input    string
@@ -70,8 +70,8 @@ func TestScanLinesWithCarriage(t *testing.T) {
 	}
 }
 
-// TestScanLinesWithCarriageEdgeCases tests edge cases and potential error scenarios
-func TestScanLinesWithCarriageEdgeCases(t *testing.T) {
+// TestscanLinesWithCarriageEdgeCases tests edge cases and potential error scenarios
+func TestscanLinesWithCarriageEdgeCases(t *testing.T) {
 	t.Run("Empty input", func(t *testing.T) {
 		scanner := bufio.NewScanner(bytes.NewReader([]byte("")))
 		scanner.Split(scanLinesWithCarriage)

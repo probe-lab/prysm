@@ -106,6 +106,7 @@ type BeaconNode struct {
 	stateFeed               *event.Feed
 	blockFeed               *event.Feed
 	opFeed                  *event.Feed
+	dgbFeed                 *event.Feed
 	stateGen                *stategen.State
 	collector               *bcnodeCollector
 	slasherBlockHeadersFeed *event.Feed
@@ -146,6 +147,7 @@ func New(cliCtx *cli.Context, cancel context.CancelFunc, opts ...Option) (*Beaco
 		stateFeed:               new(event.Feed),
 		blockFeed:               new(event.Feed),
 		opFeed:                  new(event.Feed),
+		dgbFeed:                 new(event.Feed),
 		attestationCache:        cache.NewAttestationCache(),
 		attestationPool:         attestations.NewPool(),
 		exitPool:                voluntaryexits.NewPool(),
@@ -409,6 +411,11 @@ func (b *BeaconNode) BlockFeed() *event.Feed {
 // OperationFeed implements opfeed.Notifier.
 func (b *BeaconNode) OperationFeed() event.SubscriberSender {
 	return b.opFeed
+}
+
+// DebugFeed implements dbgfeed.Notifier
+func (b *BeaconNode) DebugEventFeed() event.SubscriberSender {
+	return b.dgbFeed
 }
 
 // Start the BeaconNode and kicks off every registered service.
@@ -806,6 +813,7 @@ func (b *BeaconNode) registerPOWChainService() error {
 		execution.WithStateNotifier(b),
 		execution.WithStateGen(b.stateGen),
 		execution.WithBeaconNodeStatsUpdater(bs),
+		execution.WithDebugOpNotifier(b.DebugEventFeed()),
 		execution.WithFinalizedStateAtStartup(b.finalizedStateAtStartUp),
 		execution.WithJwtId(b.cliCtx.String(flags.JwtId.Name)),
 		execution.WithVerifierWaiter(b.verifyInitWaiter),
@@ -996,6 +1004,7 @@ func (b *BeaconNode) registerRPCService(router *http.ServeMux) error {
 		BlockNotifier:             b,
 		StateNotifier:             b,
 		OperationNotifier:         b,
+		DebugOpNotifier:           b,
 		StateGen:                  b.stateGen,
 		EnableDebugRPCEndpoints:   enableDebugRPCEndpoints,
 		MaxMsgSize:                maxMsgSize,

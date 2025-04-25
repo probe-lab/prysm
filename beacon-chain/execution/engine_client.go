@@ -13,6 +13,9 @@ import (
 	gethRPC "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 	"github.com/pkg/errors"
+	"github.com/prysmaticlabs/prysm/v5/beacon-chain/core/feed"
+	"github.com/prysmaticlabs/prysm/v5/beacon-chain/core/feed/debug"
+	fdebug "github.com/prysmaticlabs/prysm/v5/beacon-chain/core/feed/debug"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/execution/types"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/verification"
 	fieldparams "github.com/prysmaticlabs/prysm/v5/config/fieldparams"
@@ -118,6 +121,11 @@ type EngineCaller interface {
 	GetPayload(ctx context.Context, payloadId [8]byte, slot primitives.Slot) (*blocks.GetPayloadResponse, error)
 	ExecutionBlockByHash(ctx context.Context, hash common.Hash, withTxs bool) (*pb.ExecutionBlock, error)
 	GetTerminalBlockHash(ctx context.Context, transitionTime uint64) ([]byte, bool, error)
+}
+
+// the service should be able to provide all these stream endpoints
+type DebugEventStreamer interface {
+	DebugEngineGetBlobsV1Request(context.Context, *debug.EngineAPIGetBlobsResponseData) error
 }
 
 var ErrEmptyBlockHash = errors.New("Block hash is empty 0x0000...")
@@ -535,6 +543,29 @@ func (s *Service) ReconstructFullBellatrixBlockBatch(
 // Only the blobs that do not already exist (where hasIndex(i) is false)
 // will be fetched from the execution engine using the KZG commitments from block body.
 func (s *Service) ReconstructBlobSidecars(ctx context.Context, block interfaces.ReadOnlySignedBeaconBlock, blockRoot [32]byte, hasIndex func(uint64) bool) ([]blocks.VerifiedROBlob, error) {
+	// debug - compose the
+	var err error
+	opT := time.Now()
+	debugNot := &debug.EngineAPIGetBlobsResponseData{
+		Timestamp:    opT,
+		Request:      make([]common.Hash, 0),
+		Response:     make([]bool, 0),
+		SuccessArray: make([]bool, 0),
+		Error:        "",
+	}
+	defer func() {
+		// only notify if the debugEventStream endpoint was enabled
+		debugNot.ReconstructDuration = time.Since(opT)
+		if err != nil {
+			debugNot.Error = err.Error()
+		}
+		s.debugOpNotifier.Send(&feed.Event{
+			Type: fdebug.EngineAPIGetBlobsResponse,
+			Data: debugNot,
+		})
+		fmt.Println("new get_blob_request ->", debugNot)
+	}()
+
 	blockBody := block.Block().Body()
 	kzgCommitments, err := blockBody.BlobKzgCommitments()
 	if err != nil {
@@ -553,14 +584,28 @@ func (s *Service) ReconstructBlobSidecars(ctx context.Context, block interfaces.
 	if len(kzgHashes) == 0 {
 		return nil, nil
 	}
+	// copy the requested kzgHashes into the Request fields
+	for _, h := range kzgHashes {
+		debugNot.Request = append(debugNot.Request, h)
+	}
 
 	// Fetch blobs from EL
+	callT := time.Now()
 	blobs, err := s.GetBlobs(ctx, kzgHashes)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not get blobs")
 	}
 	if len(blobs) == 0 {
 		return nil, nil
+	}
+	debugNot.ReqDuration = time.Since(callT)
+	// copy the returned blobs into the Request fields
+	for _, b := range blobs {
+		if b != nil {
+			debugNot.Response = append(debugNot.Response, true)
+		} else {
+			debugNot.Response = append(debugNot.Response, false)
+		}
 	}
 
 	header, err := block.Header()
@@ -569,7 +614,9 @@ func (s *Service) ReconstructBlobSidecars(ctx context.Context, block interfaces.
 	}
 
 	// Reconstruct verified blob sidecars
+	validationT := time.Now()
 	var verifiedBlobs []blocks.VerifiedROBlob
+	debugNot.SuccessArray = make([]bool, len(kzgHashes))
 	for i := 0; i < len(kzgHashes); i++ {
 		if blobs[i] == nil {
 			continue
@@ -604,8 +651,9 @@ func (s *Service) ReconstructBlobSidecars(ctx context.Context, block interfaces.
 		}
 
 		verifiedBlobs = append(verifiedBlobs, verifiedBlob)
+		debugNot.SuccessArray[i] = true
 	}
-
+	debugNot.ValDuration = time.Since(validationT)
 	return verifiedBlobs, nil
 }
 

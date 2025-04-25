@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/pkg/errors"
 	"github.com/prysmaticlabs/prysm/v5/api/server"
+	"github.com/prysmaticlabs/prysm/v5/beacon-chain/core/feed/debug"
 	fieldparams "github.com/prysmaticlabs/prysm/v5/config/fieldparams"
 	"github.com/prysmaticlabs/prysm/v5/config/params"
 	"github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
@@ -1695,5 +1696,17 @@ func SyncAggregateFromConsensus(sa *eth.SyncAggregate) *SyncAggregate {
 	return &SyncAggregate{
 		SyncCommitteeBits:      hexutil.Encode(sa.SyncCommitteeBits),
 		SyncCommitteeSignature: hexutil.Encode(sa.SyncCommitteeSignature),
+	}
+}
+
+func EngineAPIGetBlobsV1FromResponse(resp *debug.EngineAPIGetBlobsResponseData) *EngineAPIGetBlobsResponseData {
+	return &EngineAPIGetBlobsResponseData{
+		Timestamp:           resp.Timestamp,
+		ReqDuration:         resp.ReqDuration,
+		ValDuration:         resp.ValDuration,
+		ReconstructDuration: resp.ReconstructDuration,
+		Request:             resp.Request,
+		Response:            resp.Response,
+		SuccessArray:        resp.SuccessArray,
 	}
 }

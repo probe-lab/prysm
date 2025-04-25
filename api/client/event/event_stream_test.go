@@ -14,23 +14,25 @@ import (
 
 func TestNewEventStream(t *testing.T) {
 	validURL := "http://localhost:8080"
+	validBase := EventStreamBase
 	invalidURL := "://invalid"
 	topics := []string{"topic1", "topic2"}
 
 	tests := []struct {
 		name    string
 		host    string
+		base    string
 		topics  []string
 		wantErr bool
 	}{
-		{"Valid input", validURL, topics, false},
-		{"Invalid URL", invalidURL, topics, true},
-		{"No topics", validURL, []string{}, true},
+		{"Valid input", validURL, validBase, topics, false},
+		{"Invalid URL", invalidURL, "", topics, true},
+		{"No topics", validURL, validBase, []string{}, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewEventStream(context.Background(), &http.Client{}, tt.host, tt.topics)
+			_, err := NewEventStream(context.Background(), &http.Client{}, tt.host, tt.base, tt.topics)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewEventStream() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -40,7 +42,7 @@ func TestNewEventStream(t *testing.T) {
 
 func TestEventStream(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/eth/v1/events", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/eth/v1/"+EventStreamBase, func(w http.ResponseWriter, _ *http.Request) {
 		flusher, ok := w.(http.Flusher)
 		require.Equal(t, true, ok)
 		for i := 1; i <= 3; i++ {
@@ -56,7 +58,7 @@ func TestEventStream(t *testing.T) {
 
 	topics := []string{"head"}
 	eventsChannel := make(chan *Event, 1)
-	stream, err := NewEventStream(context.Background(), http.DefaultClient, server.URL, topics)
+	stream, err := NewEventStream(context.Background(), http.DefaultClient, server.URL, EventStreamBase, topics)
 	require.NoError(t, err)
 	go stream.Subscribe(eventsChannel)
 
@@ -87,7 +89,7 @@ func TestEventStreamRequestError(t *testing.T) {
 	defer cancel()
 
 	// use valid url that will result in failed request with nil body
-	stream, err := NewEventStream(ctx, http.DefaultClient, "http://badhost:1234", topics)
+	stream, err := NewEventStream(ctx, http.DefaultClient, "http://badhost:1234", EventStreamBase, topics)
 	require.NoError(t, err)
 
 	// error will happen when request is made, should be received over events channel

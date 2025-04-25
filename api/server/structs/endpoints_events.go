@@ -2,6 +2,9 @@ package structs
 
 import (
 	"encoding/json"
+	"time"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 type HeadEvent struct {
@@ -99,4 +102,16 @@ type LightClientFinalityUpdateEvent struct {
 type LightClientOptimisticUpdateEvent struct {
 	Version string                       `json:"version"`
 	Data    *LightClientOptimisticUpdate `json:"data"`
+}
+
+// -- Debug Events --
+type EngineAPIGetBlobsResponseData struct {
+	Timestamp           time.Time     `json:"timestamp"`
+	ReqDuration         time.Duration `json:"req_duration"`
+	ValDuration         time.Duration `json:"val_duration"`
+	ReconstructDuration time.Duration `json:"reconstruction_duration"`
+	Request             []common.Hash `json:"request"`
+	Response            []bool        `json:"response"`
+	SuccessArray        []bool        `json:"success_array"`
+	Error               string        `json:"error"`
 }

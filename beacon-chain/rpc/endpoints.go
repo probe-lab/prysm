@@ -1018,6 +1018,7 @@ func (s *Service) eventsEndpoints() []endpoint {
 	server := &events.Server{
 		StateNotifier:          s.cfg.StateNotifier,
 		OperationNotifier:      s.cfg.OperationNotifier,
+		DebugOpNotifier:        s.cfg.DebugOpNotifier,
 		HeadFetcher:            s.cfg.HeadFetcher,
 		ChainInfoFetcher:       s.cfg.ChainInfoFetcher,
 		TrackedValidatorsCache: s.cfg.TrackedValidatorsCache,

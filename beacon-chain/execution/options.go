@@ -2,6 +2,7 @@ package execution
 
 import (
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/prysmaticlabs/prysm/v5/async/event"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/cache"
 	statefeed "github.com/prysmaticlabs/prysm/v5/beacon-chain/core/feed/state"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/db"
@@ -121,6 +122,14 @@ func WithJwtId(jwtId string) Option {
 func WithVerifierWaiter(v *verification.InitializerWaiter) Option {
 	return func(s *Service) error {
 		s.verifierWaiter = v
+		return nil
+	}
+}
+
+// WithDebugOpNotifier gives the sync package direct access to the verifier waiter.
+func WithDebugOpNotifier(not event.SubscriberSender) Option {
+	return func(s *Service) error {
+		s.debugOpNotifier = not
 		return nil
 	}
 }
