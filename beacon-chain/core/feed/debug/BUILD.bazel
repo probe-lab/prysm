@@ -1,0 +1,15 @@
+load("@prysm//tools/go:def.bzl", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "events.go",
+        "notifier.go",
+    ],
+    importpath = "github.com/prysmaticlabs/prysm/v5/beacon-chain/core/feed/debug",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//async/event:go_default_library",
+        "@com_github_ethereum_go_ethereum//common:go_default_library",
+    ],
+)
